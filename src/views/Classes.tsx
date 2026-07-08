@@ -81,7 +81,7 @@ export default function Classes() {
     .catch(console.error);
   };
 
-  const cycles = ['Élémentaire', 'Moyen', 'Lycée'];
+  const cycles = ['Préscolaire', 'Élémentaire', 'Moyen', 'Lycée'];
 
   if (selectedClasse) {
     return (

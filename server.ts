@@ -71,11 +71,13 @@ async function startServer() {
       inscription INTEGER,
       mensualite INTEGER
     );
+    INSERT OR IGNORE INTO tarifs (cycle, inscription, mensualite) VALUES ('Préscolaire', 10000, 15000);
     INSERT OR IGNORE INTO tarifs (cycle, inscription, mensualite) VALUES ('Élémentaire', 10000, 15000);
     INSERT OR IGNORE INTO tarifs (cycle, inscription, mensualite) VALUES ('Moyen', 15000, 20000);
     INSERT OR IGNORE INTO tarifs (cycle, inscription, mensualite) VALUES ('Lycée', 20000, 25000);
     INSERT OR IGNORE INTO stats (id, tresorerie, stock_alerte) VALUES (1, 1250000, 3);
     
+    INSERT OR IGNORE INTO classes (nom, cycle) VALUES ('Petite Section', 'Préscolaire'), ('Moyenne Section', 'Préscolaire'), ('Grande Section', 'Préscolaire');
     INSERT OR IGNORE INTO classes (nom, cycle) VALUES ('CI', 'Élémentaire'), ('CP', 'Élémentaire'), ('CE1', 'Élémentaire'), ('CE2', 'Élémentaire'), ('CM1', 'Élémentaire'), ('CM2', 'Élémentaire');
     INSERT OR IGNORE INTO classes (nom, cycle) VALUES ('6ème', 'Moyen'), ('5ème', 'Moyen'), ('4ème', 'Moyen'), ('3ème', 'Moyen');
     INSERT OR IGNORE INTO classes (nom, cycle) VALUES ('Seconde', 'Lycée'), ('Première', 'Lycée'), ('Terminale', 'Lycée');
