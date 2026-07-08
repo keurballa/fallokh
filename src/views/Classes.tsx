@@ -26,6 +26,25 @@ export default function Classes() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [newEleve, setNewEleve] = useState({ matricule: '', nom: '', prenom: '', statut: 'Actif' });
 
+  const [showAddClassForm, setShowAddClassForm] = useState(false);
+  const [newClass, setNewClass] = useState({ nom: '', cycle: 'Élémentaire', inscription: 10000, mensualite: 15000 });
+
+  const handleAddClass = (e: React.FormEvent) => {
+    e.preventDefault();
+    fetch('/api/classes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newClass)
+    })
+    .then(r => r.json())
+    .then(() => {
+      setShowAddClassForm(false);
+      setNewClass({ nom: '', cycle: 'Élémentaire', inscription: 10000, mensualite: 15000 });
+      fetchClasses();
+    })
+    .catch(console.error);
+  };
+
   useEffect(() => {
     fetchClasses();
   }, []);
@@ -186,6 +205,43 @@ export default function Classes() {
 
   return (
     <div className="space-y-8">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <h2 className="text-2xl font-bold text-slate-900">Classes</h2>
+        <button 
+          onClick={() => setShowAddClassForm(!showAddClassForm)}
+          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition-colors text-sm font-semibold shadow-sm"
+        >
+          {showAddClassForm ? <X size={18} /> : <Plus size={18} />}
+          {showAddClassForm ? 'Fermer' : 'Ajouter une classe'}
+        </button>
+      </div>
+
+      {showAddClassForm && (
+        <form onSubmit={handleAddClass} className="bg-blue-50 border border-blue-100 p-5 rounded-xl flex flex-col sm:flex-row gap-4 items-end shadow-sm flex-wrap">
+          <div className="flex-1 min-w-[150px] space-y-1">
+            <label className="text-xs font-bold text-slate-600 uppercase">Nom</label>
+            <input required type="text" value={newClass.nom} onChange={e => setNewClass({...newClass, nom: e.target.value})} className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 shadow-sm text-sm" placeholder="Ex: CM1 A" />
+          </div>
+          <div className="flex-1 min-w-[150px] space-y-1">
+            <label className="text-xs font-bold text-slate-600 uppercase">Cycle</label>
+            <select value={newClass.cycle} onChange={e => setNewClass({...newClass, cycle: e.target.value})} className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 shadow-sm text-sm">
+              {cycles.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div className="flex-1 min-w-[150px] space-y-1">
+            <label className="text-xs font-bold text-slate-600 uppercase">Inscription (FCFA)</label>
+            <input required type="number" value={newClass.inscription} onChange={e => setNewClass({...newClass, inscription: parseInt(e.target.value) || 0})} className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 shadow-sm text-sm" />
+          </div>
+          <div className="flex-1 min-w-[150px] space-y-1">
+            <label className="text-xs font-bold text-slate-600 uppercase">Mensualité (FCFA)</label>
+            <input required type="number" value={newClass.mensualite} onChange={e => setNewClass({...newClass, mensualite: parseInt(e.target.value) || 0})} className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 shadow-sm text-sm" />
+          </div>
+          <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-semibold shadow-sm transition-colors text-sm w-full sm:w-auto">
+            Enregistrer
+          </button>
+        </form>
+      )}
+
       {classes.length === 0 ? (
         <div className="text-center py-16 bg-white rounded-xl border border-slate-200 shadow-sm">
           <GraduationCap size={48} className="mx-auto text-slate-300 mb-4" />

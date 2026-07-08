@@ -134,6 +134,20 @@ async function startServer() {
     }
   });
 
+  app.post('/api/classes', (req, res) => {
+    try {
+      const { nom, cycle, inscription, mensualite } = req.body;
+      const info = db.prepare(`
+        INSERT INTO classes (nom, cycle, inscription, mensualite)
+        VALUES (?, ?, ?, ?)
+      `).run(nom, cycle, inscription || 10000, mensualite || 15000);
+      res.json({ id: info.lastInsertRowid, nom, cycle, inscription, mensualite });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Database error' });
+    }
+  });
+
   app.get('/api/classes/:id/eleves', (req, res) => {
     try {
       const eleves = db.prepare('SELECT * FROM eleves WHERE classe_id = ? ORDER BY nom ASC, prenom ASC').all(req.params.id);
