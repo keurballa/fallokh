@@ -76,12 +76,14 @@ function PaiementsEleves() {
       fetch('/api/tarifs').then(r => r.json())
     ])
     .then(([elevesData, tarifsData]) => {
-      setEleves(elevesData);
-      setTarifs(tarifsData);
+      setEleves(Array.isArray(elevesData) ? elevesData : []);
+      setTarifs(Array.isArray(tarifsData) ? tarifsData : []);
       setLoading(false);
     })
     .catch(err => {
       console.error(err);
+      setEleves([]);
+      setTarifs([]);
       setLoading(false);
     });
   };
@@ -499,10 +501,14 @@ function Tarifs() {
     fetch('/api/tarifs')
       .then(r => r.json())
       .then(data => {
-        setTarifs(data);
+        setTarifs(Array.isArray(data) ? data : []);
         setLoading(false);
       })
-      .catch(console.error);
+      .catch(err => {
+        console.error(err);
+        setTarifs([]);
+        setLoading(false);
+      });
   };
 
   const handleUpdate = (id: number, inscription: number, mensualite: number) => {

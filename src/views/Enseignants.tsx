@@ -31,11 +31,12 @@ export default function Enseignants() {
     fetch('/api/enseignants')
       .then(r => r.json())
       .then(data => {
-        setEnseignants(data);
+        setEnseignants(Array.isArray(data) ? data : []);
         setLoading(false);
       })
       .catch(err => {
         console.error(err);
+        setEnseignants([]);
         setLoading(false);
       });
   };

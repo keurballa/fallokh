@@ -34,11 +34,17 @@ export default function Classes() {
     fetch('/api/classes')
       .then(r => r.json())
       .then(data => {
-        setClasses(data);
+        if (Array.isArray(data)) {
+          setClasses(data);
+        } else {
+          console.error("API returned non-array:", data);
+          setClasses([]);
+        }
         setLoading(false);
       })
       .catch(err => {
         console.error(err);
+        setClasses([]);
         setLoading(false);
       });
   };
@@ -170,14 +176,28 @@ export default function Classes() {
     );
   }
 
+  if (loading) {
+    return (
+      <div className="flex justify-center items-center h-64 text-slate-500">
+        Chargement des classes...
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-8">
-      {cycles.map(cycle => {
-        const cycleClasses = classes.filter(c => c.cycle === cycle);
-        if (cycleClasses.length === 0) return null;
-        
-        return (
-          <div key={cycle} className="space-y-4">
+      {classes.length === 0 ? (
+        <div className="text-center py-16 bg-white rounded-xl border border-slate-200 shadow-sm">
+          <GraduationCap size={48} className="mx-auto text-slate-300 mb-4" />
+          <p className="text-slate-500">Aucune classe disponible.</p>
+        </div>
+      ) : (
+        cycles.map(cycle => {
+          const cycleClasses = classes.filter(c => c.cycle === cycle);
+          if (cycleClasses.length === 0) return null;
+          
+          return (
+            <div key={cycle} className="space-y-4">
             <h3 className="text-lg font-bold text-slate-800 border-b border-slate-200 pb-2">{cycle}</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
               {cycleClasses.map(c => (
@@ -201,7 +221,8 @@ export default function Classes() {
             </div>
           </div>
         );
-      })}
+      })
+      )}
     </div>
   );
 }

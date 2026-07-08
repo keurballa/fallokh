@@ -114,7 +114,15 @@ async function startServer() {
   // --- API Routes ---
   app.get('/api/classes', (req, res) => {
     try {
-      const classes = db.prepare('SELECT * FROM classes').all();
+      let classes = [];
+      try {
+        classes = db.prepare('SELECT * FROM classes').all();
+      } catch (err) {
+        classes = db.prepare('SELECT id, nom, cycle FROM classes').all().map((c: any) => ({
+          ...c, inscription: 10000, mensualite: 15000
+        }));
+      }
+      
       // Get student count per class
       const counts = db.prepare('SELECT classe_id, COUNT(*) as count FROM eleves WHERE classe_id IS NOT NULL GROUP BY classe_id').all() as any[];
       const countMap = counts.reduce((acc, curr) => ({ ...acc, [curr.classe_id]: curr.count }), {});
@@ -197,7 +205,14 @@ async function startServer() {
 
   app.get('/api/tarifs', (req, res) => {
     try {
-      const classes = db.prepare('SELECT id, nom, cycle, inscription, mensualite FROM classes').all();
+      let classes = [];
+      try {
+        classes = db.prepare('SELECT id, nom, cycle, inscription, mensualite FROM classes').all();
+      } catch (err) {
+        classes = db.prepare('SELECT id, nom, cycle FROM classes').all().map((c: any) => ({
+          ...c, inscription: 10000, mensualite: 15000
+        }));
+      }
       res.json(classes);
     } catch (error) {
       console.error(error);

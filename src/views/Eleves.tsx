@@ -20,11 +20,12 @@ export default function Eleves() {
     fetch('/api/eleves')
       .then(r => r.json())
       .then(data => {
-        setEleves(data);
+        setEleves(Array.isArray(data) ? data : []);
         setLoading(false);
       })
       .catch(err => {
         console.error(err);
+        setEleves([]);
         setLoading(false);
       });
   }, []);
