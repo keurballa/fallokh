@@ -97,6 +97,18 @@ async function startServer() {
     // Column already exists
   }
 
+  try {
+    db.exec('ALTER TABLE classes ADD COLUMN inscription INTEGER DEFAULT 10000');
+  } catch (e) {}
+
+  try {
+    db.exec('ALTER TABLE classes ADD COLUMN mensualite INTEGER DEFAULT 15000');
+  } catch (e) {}
+
+  try {
+    db.exec('ALTER TABLE enseignants ADD COLUMN salaire_base INTEGER DEFAULT 150000');
+  } catch (e) {}
+
   app.use(express.json());
 
   // --- API Routes ---
@@ -185,8 +197,8 @@ async function startServer() {
 
   app.get('/api/tarifs', (req, res) => {
     try {
-      const tarifs = db.prepare('SELECT * FROM tarifs').all();
-      res.json(tarifs);
+      const classes = db.prepare('SELECT id, nom, cycle, inscription, mensualite FROM classes').all();
+      res.json(classes);
     } catch (error) {
       console.error(error);
       res.status(500).json({ error: 'Database error' });
@@ -196,7 +208,7 @@ async function startServer() {
   app.put('/api/tarifs/:id', (req, res) => {
     try {
       const { inscription, mensualite } = req.body;
-      db.prepare('UPDATE tarifs SET inscription = ?, mensualite = ? WHERE id = ?').run(inscription, mensualite, req.params.id);
+      db.prepare('UPDATE classes SET inscription = ?, mensualite = ? WHERE id = ?').run(inscription, mensualite, req.params.id);
       res.json({ success: true });
     } catch (error) {
       console.error(error);
@@ -252,6 +264,17 @@ async function startServer() {
       });
       
       res.json(enseignantsWithSalaires);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Database error' });
+    }
+  });
+
+  app.put('/api/enseignants/:id/salaire', (req, res) => {
+    try {
+      const { salaire_base } = req.body;
+      db.prepare('UPDATE enseignants SET salaire_base = ? WHERE id = ?').run(salaire_base, req.params.id);
+      res.json({ success: true });
     } catch (error) {
       console.error(error);
       res.status(500).json({ error: 'Database error' });

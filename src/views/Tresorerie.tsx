@@ -87,7 +87,7 @@ function PaiementsEleves() {
   };
 
   const handlePayer = (eleve: any, mois: string) => {
-    const tarif = tarifs.find(t => t.cycle === eleve.cycle);
+    const tarif = tarifs.find(t => t.id === eleve.classe_id);
     const defaultInscription = 10000;
     const defaultMensualite = 15000;
     
@@ -219,12 +219,25 @@ function SalairesEnseignants() {
       });
   };
 
-  const handlePayer = (enseignant_id: number, mois: string) => {
-    const montant = 150000; // Default salary
+  const handlePayer = (enseignant: any, mois: string) => {
+    const montant = enseignant.salaire_base || 150000;
     fetch('/api/tresorerie/enseignants/salaire', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ enseignant_id, mois, montant })
+      body: JSON.stringify({ enseignant_id: enseignant.id, mois, montant })
+    })
+    .then(r => r.json())
+    .then(() => {
+      fetchData();
+    })
+    .catch(console.error);
+  };
+
+  const handleUpdateSalaire = (id: number, salaire_base: number) => {
+    fetch(`/api/enseignants/${id}/salaire`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ salaire_base })
     })
     .then(r => r.json())
     .then(() => {
@@ -257,6 +270,7 @@ function SalairesEnseignants() {
           <thead className="bg-slate-50 text-slate-500">
             <tr className="border-b border-slate-100">
               <th className="py-3 px-5 font-semibold sticky left-0 bg-slate-50 z-10">Enseignant (Spécialité)</th>
+              <th className="py-3 px-5 font-semibold text-right min-w-[150px]">Salaire de Base (FCFA)</th>
               {moisList.map(m => (
                 <th key={m} className="py-3 px-3 font-semibold text-center whitespace-nowrap min-w-[100px]">{m}</th>
               ))}
@@ -265,7 +279,7 @@ function SalairesEnseignants() {
           <tbody className="text-slate-700">
             {loading ? (
               <tr>
-                <td colSpan={moisList.length + 1} className="py-12 text-center text-slate-500">Chargement...</td>
+                <td colSpan={moisList.length + 2} className="py-12 text-center text-slate-500">Chargement...</td>
               </tr>
             ) : (
               filtered.map(enseignant => (
@@ -273,6 +287,14 @@ function SalairesEnseignants() {
                   <td className="py-3 px-5 sticky left-0 bg-white group-hover:bg-slate-50 font-medium">
                     <div className="whitespace-nowrap">{enseignant.prenom} {enseignant.nom}</div>
                     <div className="text-xs text-slate-400">{enseignant.specialite}</div>
+                  </td>
+                  <td className="py-3 px-5 text-right">
+                    <input 
+                      type="number" 
+                      value={enseignant.salaire_base}
+                      onChange={e => handleUpdateSalaire(enseignant.id, parseInt(e.target.value) || 0)}
+                      className="w-32 text-right px-3 py-1.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 shadow-sm text-sm font-semibold text-blue-600"
+                    />
                   </td>
                   {moisList.map(mois => {
                     const isPaye = enseignant.salaires && enseignant.salaires[mois];
@@ -284,7 +306,7 @@ function SalairesEnseignants() {
                           </div>
                         ) : (
                           <button 
-                            onClick={() => handlePayer(enseignant.id, mois)}
+                            onClick={() => handlePayer(enseignant, mois)}
                             className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-slate-100 text-slate-400 hover:bg-emerald-100 hover:text-emerald-600 transition-colors"
                             title="Payer salaire"
                           >
@@ -500,13 +522,14 @@ function Tarifs() {
     <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden flex flex-col">
       <div className="p-5 border-b border-slate-100">
         <h3 className="font-semibold text-lg text-slate-800">Tarifs par Niveau</h3>
-        <p className="text-sm text-slate-500">Configurez les montants d'inscription et de mensualité pour chaque cycle d'enseignement.</p>
+        <p className="text-sm text-slate-500">Configurez les montants d'inscription et de mensualité pour chaque classe.</p>
       </div>
       <div className="overflow-x-auto p-0">
         <table className="w-full text-left text-sm border-collapse">
           <thead className="bg-slate-50 text-slate-500">
             <tr className="border-b border-slate-100">
-              <th className="py-3 px-5 font-semibold">Cycle / Niveau</th>
+              <th className="py-3 px-5 font-semibold">Classe</th>
+              <th className="py-3 px-5 font-semibold">Cycle</th>
               <th className="py-3 px-5 font-semibold text-right">Inscription (FCFA)</th>
               <th className="py-3 px-5 font-semibold text-right">Mensualité (FCFA)</th>
             </tr>
@@ -514,12 +537,13 @@ function Tarifs() {
           <tbody className="text-slate-700">
             {loading ? (
               <tr>
-                <td colSpan={3} className="py-12 text-center text-slate-500">Chargement...</td>
+                <td colSpan={4} className="py-12 text-center text-slate-500">Chargement...</td>
               </tr>
             ) : (
               tarifs.map(tarif => (
                 <tr key={tarif.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
-                  <td className="py-4 px-5 font-bold text-slate-900">{tarif.cycle}</td>
+                  <td className="py-4 px-5 font-bold text-slate-900">{tarif.nom}</td>
+                  <td className="py-4 px-5 text-slate-500">{tarif.cycle}</td>
                   <td className="py-4 px-5 text-right">
                     <input 
                       type="number" 
