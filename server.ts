@@ -1,7 +1,20 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import Database from 'better-sqlite3';
 import { createServer as createViteServer } from 'vite';
+
+// Calcule l'année scolaire en cours (octobre = début d'année)
+function getAnneeScolaire(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth(); // 0-indexed, 9 = octobre
+  if (month >= 9) {
+    return `${year}-${year + 1}`;
+  } else {
+    return `${year - 1}-${year}`;
+  }
+}
 
 async function startServer() {
   const app = express();
@@ -10,6 +23,7 @@ async function startServer() {
   // Initialisation de la base de données SQLite (Offline-first)
   const dbPath = path.join(process.cwd(), 'sama_daara.db');
   const db = new Database(dbPath, { verbose: console.log });
+  const ANNEE = getAnneeScolaire();
 
   // Création des tables et seeding des données de démonstration
   db.exec(`
@@ -109,9 +123,56 @@ async function startServer() {
     db.exec('ALTER TABLE enseignants ADD COLUMN salaire_base INTEGER DEFAULT 150000');
   } catch (e) {}
 
+  try {
+    db.exec("ALTER TABLE enseignants ADD COLUMN mode_paiement TEXT DEFAULT 'mensuel'");
+  } catch (e) {}
+
+  try {
+    db.exec('ALTER TABLE enseignants ADD COLUMN taux_horaire INTEGER DEFAULT 5000');
+  } catch (e) {}
+
+  try {
+    db.exec('ALTER TABLE salaires_enseignants ADD COLUMN heures INTEGER DEFAULT 0');
+  } catch (e) {}
+
+  // Colonnes annee_scolaire
+  try { db.exec("ALTER TABLE paiements_eleves ADD COLUMN annee_scolaire TEXT DEFAULT ''"); } catch (e) {}
+  try { db.exec("ALTER TABLE salaires_enseignants ADD COLUMN annee_scolaire TEXT DEFAULT ''"); } catch (e) {}
+  try { db.exec("ALTER TABLE autres_entrees ADD COLUMN annee_scolaire TEXT DEFAULT ''"); } catch (e) {}
+  try { db.exec("ALTER TABLE autres_sorties ADD COLUMN annee_scolaire TEXT DEFAULT ''"); } catch (e) {}
+
+  // Mettre à jour les enregistrements existants sans année
+  try {
+    db.exec(`UPDATE paiements_eleves SET annee_scolaire = '${ANNEE}' WHERE annee_scolaire = '' OR annee_scolaire IS NULL`);
+    db.exec(`UPDATE salaires_enseignants SET annee_scolaire = '${ANNEE}' WHERE annee_scolaire = '' OR annee_scolaire IS NULL`);
+    db.exec(`UPDATE autres_entrees SET annee_scolaire = '${ANNEE}' WHERE annee_scolaire = '' OR annee_scolaire IS NULL`);
+    db.exec(`UPDATE autres_sorties SET annee_scolaire = '${ANNEE}' WHERE annee_scolaire = '' OR annee_scolaire IS NULL`);
+  } catch (e) {}
+
+  // Table des archives
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS archives (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      annee_scolaire TEXT UNIQUE,
+      date_archivage TEXT,
+      nb_eleves INTEGER,
+      nb_enseignants INTEGER,
+      nb_classes INTEGER,
+      total_entrees INTEGER,
+      total_sorties INTEGER,
+      solde INTEGER,
+      notes TEXT
+    );
+  `);
+
   app.use(express.json());
 
   // --- API Routes ---
+
+  // Année scolaire en cours
+  app.get('/api/annee-scolaire', (req, res) => {
+    res.json({ annee: ANNEE });
+  });
   app.get('/api/classes', (req, res) => {
     try {
       let classes = [];
@@ -205,12 +266,12 @@ async function startServer() {
 
   app.post('/api/enseignants', (req, res) => {
     try {
-      const { matricule, nom, prenom, specialite, statut } = req.body;
+      const { matricule, nom, prenom, specialite, statut, mode_paiement, taux_horaire } = req.body;
       const info = db.prepare(`
-        INSERT INTO enseignants (matricule, nom, prenom, specialite, statut)
-        VALUES (?, ?, ?, ?, ?)
-      `).run(matricule, nom, prenom, specialite, statut || 'Actif');
-      res.json({ id: info.lastInsertRowid, matricule, nom, prenom, specialite, statut });
+        INSERT INTO enseignants (matricule, nom, prenom, specialite, statut, mode_paiement, taux_horaire)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(matricule, nom, prenom, specialite, statut || 'Actif', mode_paiement || 'mensuel', taux_horaire || 5000);
+      res.json({ id: info.lastInsertRowid, matricule, nom, prenom, specialite, statut, mode_paiement, taux_horaire });
     } catch (error) {
       console.error(error);
       res.status(500).json({ error: 'Database error' });
@@ -248,7 +309,7 @@ async function startServer() {
   app.get('/api/tresorerie/eleves', (req, res) => {
     try {
       const eleves = db.prepare('SELECT e.*, c.nom as classe_nom, c.cycle FROM eleves e LEFT JOIN classes c ON e.classe_id = c.id ORDER BY e.nom ASC, e.prenom ASC').all() as any[];
-      const paiements = db.prepare('SELECT * FROM paiements_eleves').all() as any[];
+      const paiements = db.prepare('SELECT * FROM paiements_eleves WHERE annee_scolaire = ?').all(ANNEE) as any[];
       
       const elevesWithPaiements = eleves.map(e => {
         const elevePaiements = paiements.filter(p => p.eleve_id === e.id);
@@ -268,9 +329,9 @@ async function startServer() {
       const { eleve_id, mois, montant } = req.body;
       const date_paiement = new Date().toISOString();
       const info = db.prepare(`
-        INSERT INTO paiements_eleves (eleve_id, mois, montant, date_paiement)
-        VALUES (?, ?, ?, ?)
-      `).run(eleve_id, mois, montant, date_paiement);
+        INSERT INTO paiements_eleves (eleve_id, mois, montant, date_paiement, annee_scolaire)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(eleve_id, mois, montant, date_paiement, ANNEE);
       
       db.prepare('UPDATE stats SET tresorerie = tresorerie + ? WHERE id = 1').run(montant);
       
@@ -284,7 +345,7 @@ async function startServer() {
   app.get('/api/tresorerie/enseignants', (req, res) => {
     try {
       const enseignants = db.prepare('SELECT * FROM enseignants ORDER BY nom ASC, prenom ASC').all() as any[];
-      const salaires = db.prepare('SELECT * FROM salaires_enseignants').all() as any[];
+      const salaires = db.prepare('SELECT * FROM salaires_enseignants WHERE annee_scolaire = ?').all(ANNEE) as any[];
       
       const enseignantsWithSalaires = enseignants.map(e => {
         const enseignantSalaires = salaires.filter(s => s.enseignant_id === e.id);
@@ -301,8 +362,14 @@ async function startServer() {
 
   app.put('/api/enseignants/:id/salaire', (req, res) => {
     try {
-      const { salaire_base } = req.body;
-      db.prepare('UPDATE enseignants SET salaire_base = ? WHERE id = ?').run(salaire_base, req.params.id);
+      const { salaire_base, mode_paiement, taux_horaire } = req.body;
+      if (mode_paiement !== undefined) {
+        db.prepare('UPDATE enseignants SET salaire_base = ?, mode_paiement = ?, taux_horaire = ? WHERE id = ?').run(
+          salaire_base, mode_paiement, taux_horaire || 5000, req.params.id
+        );
+      } else {
+        db.prepare('UPDATE enseignants SET salaire_base = ? WHERE id = ?').run(salaire_base, req.params.id);
+      }
       res.json({ success: true });
     } catch (error) {
       console.error(error);
@@ -312,16 +379,16 @@ async function startServer() {
 
   app.post('/api/tresorerie/enseignants/salaire', (req, res) => {
     try {
-      const { enseignant_id, mois, montant } = req.body;
+      const { enseignant_id, mois, montant, heures } = req.body;
       const date_paiement = new Date().toISOString();
       const info = db.prepare(`
-        INSERT INTO salaires_enseignants (enseignant_id, mois, montant, date_paiement)
-        VALUES (?, ?, ?, ?)
-      `).run(enseignant_id, mois, montant, date_paiement);
+        INSERT INTO salaires_enseignants (enseignant_id, mois, montant, date_paiement, heures, annee_scolaire)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(enseignant_id, mois, montant, date_paiement, heures || 0, ANNEE);
       
       db.prepare('UPDATE stats SET tresorerie = tresorerie - ? WHERE id = 1').run(montant);
       
-      res.json({ id: info.lastInsertRowid, enseignant_id, mois, montant, date_paiement });
+      res.json({ id: info.lastInsertRowid, enseignant_id, mois, montant, date_paiement, heures });
     } catch (error) {
       console.error(error);
       res.status(500).json({ error: 'Database error' });
@@ -330,7 +397,7 @@ async function startServer() {
 
   app.get('/api/tresorerie/entrees', (req, res) => {
     try {
-      const entrees = db.prepare('SELECT * FROM autres_entrees ORDER BY id DESC').all();
+      const entrees = db.prepare('SELECT * FROM autres_entrees WHERE annee_scolaire = ? ORDER BY id DESC').all(ANNEE);
       res.json(entrees);
     } catch (error) {
       console.error(error);
@@ -343,9 +410,9 @@ async function startServer() {
       const { libelle, montant } = req.body;
       const date_transaction = new Date().toISOString();
       const info = db.prepare(`
-        INSERT INTO autres_entrees (libelle, montant, date_transaction)
-        VALUES (?, ?, ?)
-      `).run(libelle, montant, date_transaction);
+        INSERT INTO autres_entrees (libelle, montant, date_transaction, annee_scolaire)
+        VALUES (?, ?, ?, ?)
+      `).run(libelle, montant, date_transaction, ANNEE);
       
       db.prepare('UPDATE stats SET tresorerie = tresorerie + ? WHERE id = 1').run(montant);
       
@@ -358,7 +425,7 @@ async function startServer() {
 
   app.get('/api/tresorerie/sorties', (req, res) => {
     try {
-      const sorties = db.prepare('SELECT * FROM autres_sorties ORDER BY id DESC').all();
+      const sorties = db.prepare('SELECT * FROM autres_sorties WHERE annee_scolaire = ? ORDER BY id DESC').all(ANNEE);
       res.json(sorties);
     } catch (error) {
       console.error(error);
@@ -371,9 +438,9 @@ async function startServer() {
       const { libelle, montant } = req.body;
       const date_transaction = new Date().toISOString();
       const info = db.prepare(`
-        INSERT INTO autres_sorties (libelle, montant, date_transaction)
-        VALUES (?, ?, ?)
-      `).run(libelle, montant, date_transaction);
+        INSERT INTO autres_sorties (libelle, montant, date_transaction, annee_scolaire)
+        VALUES (?, ?, ?, ?)
+      `).run(libelle, montant, date_transaction, ANNEE);
       
       db.prepare('UPDATE stats SET tresorerie = tresorerie - ? WHERE id = 1').run(montant);
       
@@ -386,10 +453,11 @@ async function startServer() {
 
   app.get('/api/tresorerie/bilan', (req, res) => {
     try {
-      const totalPaiementsEleves = db.prepare('SELECT SUM(montant) as total FROM paiements_eleves').get() as any;
-      const totalSalaires = db.prepare('SELECT SUM(montant) as total FROM salaires_enseignants').get() as any;
-      const totalAutresEntrees = db.prepare('SELECT SUM(montant) as total FROM autres_entrees').get() as any;
-      const totalAutresSorties = db.prepare('SELECT SUM(montant) as total FROM autres_sorties').get() as any;
+      const annee = (req.query.annee as string) || ANNEE;
+      const totalPaiementsEleves = db.prepare('SELECT SUM(montant) as total FROM paiements_eleves WHERE annee_scolaire = ?').get(annee) as any;
+      const totalSalaires = db.prepare('SELECT SUM(montant) as total FROM salaires_enseignants WHERE annee_scolaire = ?').get(annee) as any;
+      const totalAutresEntrees = db.prepare('SELECT SUM(montant) as total FROM autres_entrees WHERE annee_scolaire = ?').get(annee) as any;
+      const totalAutresSorties = db.prepare('SELECT SUM(montant) as total FROM autres_sorties WHERE annee_scolaire = ?').get(annee) as any;
       
       const totalEntrees = (totalPaiementsEleves.total || 0) + (totalAutresEntrees.total || 0);
       const totalSorties = (totalSalaires.total || 0) + (totalAutresSorties.total || 0);
@@ -402,11 +470,195 @@ async function startServer() {
         salaires_enseignants: totalSalaires.total || 0,
         autres_sorties: totalAutresSorties.total || 0,
         total_sorties: totalSorties,
-        solde
+        solde,
+        annee_scolaire: annee
       });
     } catch (error) {
       console.error(error);
       res.status(500).json({ error: 'Database error' });
+    }
+  });
+
+  // --- Archives Routes ---
+
+  // Liste des années archivées
+  app.get('/api/archives', (req, res) => {
+    try {
+      const archives = db.prepare('SELECT * FROM archives ORDER BY annee_scolaire DESC').all();
+      res.json(archives);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Database error' });
+    }
+  });
+
+  // Années scolaires disponibles (qui ont des données)
+  app.get('/api/archives/annees', (req, res) => {
+    try {
+      const annees = new Set<string>();
+      const tables = ['paiements_eleves', 'salaires_enseignants', 'autres_entrees', 'autres_sorties'];
+      tables.forEach(table => {
+        const rows = db.prepare(`SELECT DISTINCT annee_scolaire FROM ${table} WHERE annee_scolaire != '' AND annee_scolaire IS NOT NULL`).all() as any[];
+        rows.forEach(r => annees.add(r.annee_scolaire));
+      });
+      // Also add archived years
+      const archived = db.prepare('SELECT annee_scolaire FROM archives').all() as any[];
+      archived.forEach(a => annees.add(a.annee_scolaire));
+      
+      const result = Array.from(annees).sort().reverse().map(a => ({
+        annee: a,
+        isCurrent: a === ANNEE,
+        isArchived: archived.some(ar => ar.annee_scolaire === a)
+      }));
+      res.json(result);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Database error' });
+    }
+  });
+
+  // Archiver une année scolaire
+  app.post('/api/archives/archiver', (req, res) => {
+    try {
+      const { annee_scolaire, notes } = req.body;
+      const annee = annee_scolaire || ANNEE;
+
+      // Calculer les totaux de l'année
+      const pe = db.prepare('SELECT SUM(montant) as total FROM paiements_eleves WHERE annee_scolaire = ?').get(annee) as any;
+      const se = db.prepare('SELECT SUM(montant) as total FROM salaires_enseignants WHERE annee_scolaire = ?').get(annee) as any;
+      const ae = db.prepare('SELECT SUM(montant) as total FROM autres_entrees WHERE annee_scolaire = ?').get(annee) as any;
+      const as_ = db.prepare('SELECT SUM(montant) as total FROM autres_sorties WHERE annee_scolaire = ?').get(annee) as any;
+
+      const totalEntrees = (pe?.total || 0) + (ae?.total || 0);
+      const totalSorties = (se?.total || 0) + (as_?.total || 0);
+
+      const nbEleves = (db.prepare('SELECT COUNT(*) as c FROM eleves').get() as any).c;
+      const nbEnseignants = (db.prepare('SELECT COUNT(*) as c FROM enseignants').get() as any).c;
+      const nbClasses = (db.prepare('SELECT COUNT(*) as c FROM classes').get() as any).c;
+
+      db.prepare(`
+        INSERT OR REPLACE INTO archives (annee_scolaire, date_archivage, nb_eleves, nb_enseignants, nb_classes, total_entrees, total_sorties, solde, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(annee, new Date().toISOString(), nbEleves, nbEnseignants, nbClasses, totalEntrees, totalSorties, totalEntrees - totalSorties, notes || '');
+
+      res.json({ success: true, annee_scolaire: annee });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Database error' });
+    }
+  });
+
+  // Détails d'une archive (paiements, salaires, transactions)
+  app.get('/api/archives/:annee/details', (req, res) => {
+    try {
+      const annee = req.params.annee;
+      const paiements = db.prepare(`
+        SELECT p.*, e.nom, e.prenom, e.matricule, c.nom as classe_nom
+        FROM paiements_eleves p
+        LEFT JOIN eleves e ON p.eleve_id = e.id
+        LEFT JOIN classes c ON e.classe_id = c.id
+        WHERE p.annee_scolaire = ?
+        ORDER BY p.date_paiement DESC
+      `).all(annee);
+
+      const salaires = db.prepare(`
+        SELECT s.*, e.nom, e.prenom, e.matricule, e.specialite
+        FROM salaires_enseignants s
+        LEFT JOIN enseignants e ON s.enseignant_id = e.id
+        WHERE s.annee_scolaire = ?
+        ORDER BY s.date_paiement DESC
+      `).all(annee);
+
+      const entrees = db.prepare('SELECT * FROM autres_entrees WHERE annee_scolaire = ? ORDER BY date_transaction DESC').all(annee);
+      const sorties = db.prepare('SELECT * FROM autres_sorties WHERE annee_scolaire = ? ORDER BY date_transaction DESC').all(annee);
+
+      const archive = db.prepare('SELECT * FROM archives WHERE annee_scolaire = ?').get(annee);
+
+      res.json({ archive, paiements, salaires, entrees, sorties });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Database error' });
+    }
+  });
+
+  // --- Backup & Export Routes ---
+
+  // Download database backup
+  app.get('/api/backup/download', (req, res) => {
+    try {
+      // Checkpoint WAL to ensure all data is in the main file
+      db.pragma('wal_checkpoint(TRUNCATE)');
+      const filename = `sunu_daara_backup_${new Date().toISOString().slice(0, 10)}.db`;
+      res.download(dbPath, filename);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Backup error' });
+    }
+  });
+
+  // Restore database from uploaded file
+  app.post('/api/backup/restore', express.raw({ type: 'application/octet-stream', limit: '50mb' }), (req, res) => {
+    try {
+      const backupDir = path.join(process.cwd(), 'backups');
+      if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+      
+      // Save current DB as backup before restoring
+      const backupName = `sama_daara_before_restore_${Date.now()}.db`;
+      fs.copyFileSync(dbPath, path.join(backupDir, backupName));
+      
+      // Close current DB, write new file, then it will be used on restart
+      db.close();
+      fs.writeFileSync(dbPath, req.body);
+      
+      res.json({ success: true, message: 'Base restaurée. Redémarrez le serveur.' });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Restore error' });
+    }
+  });
+
+  // Get database info
+  app.get('/api/backup/info', (req, res) => {
+    try {
+      const stats = fs.statSync(dbPath);
+      const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all() as any[];
+      const counts: Record<string, number> = {};
+      tables.forEach(t => {
+        try {
+          const row = db.prepare(`SELECT COUNT(*) as count FROM ${t.name}`).get() as any;
+          counts[t.name] = row.count;
+        } catch (e) {}
+      });
+      
+      res.json({
+        size: stats.size,
+        lastModified: stats.mtime,
+        path: dbPath,
+        tables: counts
+      });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Info error' });
+    }
+  });
+
+  // Export table as JSON (for client-side CSV generation)
+  app.get('/api/export/:table', (req, res) => {
+    const allowed = ['eleves', 'enseignants', 'classes', 'paiements_eleves', 'salaires_enseignants', 'autres_entrees', 'autres_sorties'];
+    const table = req.params.table;
+    if (!allowed.includes(table)) {
+      return res.status(400).json({ error: 'Table non autorisée' });
+    }
+    try {
+      let query = `SELECT * FROM ${table}`;
+      if (table === 'eleves') {
+        query = 'SELECT e.*, c.nom as classe_nom FROM eleves e LEFT JOIN classes c ON e.classe_id = c.id ORDER BY e.nom';
+      }
+      const data = db.prepare(query).all();
+      res.json(data);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Export error' });
     }
   });
 
