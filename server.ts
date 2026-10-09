@@ -2,7 +2,6 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import Database from 'better-sqlite3';
-import { createServer as createViteServer } from 'vite';
 
 // Calcule l'année scolaire en cours (octobre = début d'année)
 function getAnneeScolaire(): string {
@@ -18,10 +17,11 @@ function getAnneeScolaire(): string {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = process.env.PORT || 3000;
 
   // Initialisation de la base de données SQLite (Offline-first)
-  const dbPath = path.join(process.cwd(), 'sama_daara.db');
+  const dbDir = process.env.DB_DIR || process.cwd();
+  const dbPath = path.join(dbDir, 'sama_daara.db');
   const db = new Database(dbPath, { verbose: console.log });
   const ANNEE = getAnneeScolaire();
 
@@ -79,12 +79,46 @@ async function startServer() {
       montant INTEGER,
       date_transaction TEXT
     );
+    CREATE TABLE IF NOT EXISTS presences_eleves (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      eleve_id INTEGER REFERENCES eleves(id),
+      date_presence TEXT,
+      statut TEXT,
+      motif TEXT,
+      annee_scolaire TEXT
+    );
     CREATE TABLE IF NOT EXISTS tarifs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       cycle TEXT UNIQUE,
       inscription INTEGER,
       mensualite INTEGER
     );
+    CREATE TABLE IF NOT EXISTS utilisateurs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      identifiant TEXT UNIQUE,
+      mot_de_passe TEXT,
+      role TEXT
+    );
+    INSERT OR IGNORE INTO utilisateurs (identifiant, mot_de_passe, role) VALUES ('admin', 'admin123', 'Directeur');
+    INSERT OR IGNORE INTO utilisateurs (identifiant, mot_de_passe, role) VALUES ('secretaire', 'secret123', 'Secrétaire');
+    
+    CREATE TABLE IF NOT EXISTS evaluations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      classe_id INTEGER REFERENCES classes(id),
+      matiere TEXT,
+      coefficient INTEGER DEFAULT 1,
+      periode TEXT,
+      date_eval TEXT,
+      annee_scolaire TEXT
+    );
+    CREATE TABLE IF NOT EXISTS notes_eleves (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      evaluation_id INTEGER REFERENCES evaluations(id) ON DELETE CASCADE,
+      eleve_id INTEGER REFERENCES eleves(id),
+      note REAL,
+      appreciation TEXT
+    );
+
     INSERT OR IGNORE INTO tarifs (cycle, inscription, mensualite) VALUES ('Préscolaire', 10000, 15000);
     INSERT OR IGNORE INTO tarifs (cycle, inscription, mensualite) VALUES ('Élémentaire', 10000, 15000);
     INSERT OR IGNORE INTO tarifs (cycle, inscription, mensualite) VALUES ('Moyen', 15000, 20000);
@@ -95,13 +129,6 @@ async function startServer() {
     INSERT OR IGNORE INTO classes (nom, cycle) VALUES ('CI', 'Élémentaire'), ('CP', 'Élémentaire'), ('CE1', 'Élémentaire'), ('CE2', 'Élémentaire'), ('CM1', 'Élémentaire'), ('CM2', 'Élémentaire');
     INSERT OR IGNORE INTO classes (nom, cycle) VALUES ('6ème', 'Moyen'), ('5ème', 'Moyen'), ('4ème', 'Moyen'), ('3ème', 'Moyen');
     INSERT OR IGNORE INTO classes (nom, cycle) VALUES ('Seconde', 'Lycée'), ('Première', 'Lycée'), ('Terminale', 'Lycée');
-
-    INSERT OR IGNORE INTO eleves (matricule, nom, prenom, niveau, statut) VALUES ('M001', 'Diop', 'Amadou', 'Hafiz', 'Actif');
-    INSERT OR IGNORE INTO eleves (matricule, nom, prenom, niveau, statut) VALUES ('M002', 'Fall', 'Fatou', 'Intermédiaire', 'Actif');
-    INSERT OR IGNORE INTO eleves (matricule, nom, prenom, niveau, statut) VALUES ('M003', 'Sow', 'Ousmane', 'Débutant', 'Actif');
-    INSERT OR IGNORE INTO eleves (matricule, nom, prenom, niveau, statut) VALUES ('M004', 'Ndiaye', 'Awa', 'Hafiz', 'Actif');
-    INSERT OR IGNORE INTO enseignants (matricule, nom, prenom, specialite, statut) VALUES ('E001', 'Ndiaye', 'Moussa', 'Mémorisation', 'Actif');
-    INSERT OR IGNORE INTO enseignants (matricule, nom, prenom, specialite, statut) VALUES ('E002', 'Bâ', 'Ibrahim', 'Tajwid', 'Actif');
   `);
 
   try {
@@ -128,7 +155,11 @@ async function startServer() {
   } catch (e) {}
 
   try {
-    db.exec('ALTER TABLE enseignants ADD COLUMN taux_horaire INTEGER DEFAULT 5000');
+    db.exec('ALTER TABLE enseignants ADD COLUMN taux_horaire INTEGER DEFAULT 1500');
+  } catch (e) {}
+
+  try {
+    db.exec('UPDATE enseignants SET taux_horaire = 1500');
   } catch (e) {}
 
   try {
@@ -140,6 +171,22 @@ async function startServer() {
   try { db.exec("ALTER TABLE salaires_enseignants ADD COLUMN annee_scolaire TEXT DEFAULT ''"); } catch (e) {}
   try { db.exec("ALTER TABLE autres_entrees ADD COLUMN annee_scolaire TEXT DEFAULT ''"); } catch (e) {}
   try { db.exec("ALTER TABLE autres_sorties ADD COLUMN annee_scolaire TEXT DEFAULT ''"); } catch (e) {}
+
+  // Colonnes categorie pour autres
+  try { db.exec("ALTER TABLE autres_entrees ADD COLUMN categorie TEXT DEFAULT 'Autre'"); } catch (e) {}
+  try { db.exec("ALTER TABLE autres_sorties ADD COLUMN categorie TEXT DEFAULT 'Autre'"); } catch (e) {}
+  
+  // Date et lieu de naissance
+  try { db.exec("ALTER TABLE eleves ADD COLUMN date_naissance TEXT DEFAULT ''"); } catch (e) {}
+  try { db.exec("ALTER TABLE eleves ADD COLUMN lieu_naissance TEXT DEFAULT ''"); } catch (e) {}
+  try { db.exec("ALTER TABLE enseignants ADD COLUMN date_naissance TEXT DEFAULT ''"); } catch (e) {}
+  try { db.exec("ALTER TABLE enseignants ADD COLUMN lieu_naissance TEXT DEFAULT ''"); } catch (e) {}
+  try { db.exec("ALTER TABLE eleves ADD COLUMN redoublant TEXT DEFAULT 'Non'"); } catch (e) {}
+  // Fiche de renseignements
+  try { db.exec("ALTER TABLE eleves ADD COLUMN nom_pere TEXT DEFAULT ''"); } catch (e) {}
+  try { db.exec("ALTER TABLE eleves ADD COLUMN nom_mere TEXT DEFAULT ''"); } catch (e) {}
+  try { db.exec("ALTER TABLE eleves ADD COLUMN adresse TEXT DEFAULT ''"); } catch (e) {}
+  try { db.exec("ALTER TABLE eleves ADD COLUMN telephone_tuteur TEXT DEFAULT ''"); } catch (e) {}
 
   // Mettre à jour les enregistrements existants sans année
   try {
@@ -168,6 +215,22 @@ async function startServer() {
   app.use(express.json());
 
   // --- API Routes ---
+
+  // Auth
+  app.post('/api/login', (req, res) => {
+    try {
+      const { identifiant, mot_de_passe } = req.body;
+      const user = db.prepare('SELECT id, identifiant, role FROM utilisateurs WHERE identifiant = ? AND mot_de_passe = ?').get(identifiant, mot_de_passe);
+      if (user) {
+        res.json({ success: true, user });
+      } else {
+        res.status(401).json({ success: false, error: 'Identifiants incorrects' });
+      }
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Database error' });
+    }
+  });
 
   // Année scolaire en cours
   app.get('/api/annee-scolaire', (req, res) => {
@@ -203,6 +266,32 @@ async function startServer() {
         VALUES (?, ?, ?, ?)
       `).run(nom, cycle, inscription || 10000, mensualite || 15000);
       res.json({ id: info.lastInsertRowid, nom, cycle, inscription, mensualite });
+    } catch (error: any) {
+      console.error(error);
+      if (error.code === 'SQLITE_CONSTRAINT_UNIQUE' || (error.message && error.message.includes('UNIQUE constraint'))) {
+        return res.status(400).json({ error: 'Ce nom de classe existe déjà.' });
+      }
+      res.status(500).json({ error: 'Database error' });
+    }
+  });
+
+  app.put('/api/classes/:id', (req, res) => {
+    try {
+      const { nom, cycle, inscription, mensualite } = req.body;
+      db.prepare('UPDATE classes SET nom = ?, cycle = ?, inscription = ?, mensualite = ? WHERE id = ?')
+        .run(nom, cycle, inscription || 10000, mensualite || 15000, req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Database error' });
+    }
+  });
+
+  app.delete('/api/classes/:id', (req, res) => {
+    try {
+      db.prepare('UPDATE eleves SET classe_id = NULL WHERE classe_id = ?').run(req.params.id);
+      db.prepare('DELETE FROM classes WHERE id = ?').run(req.params.id);
+      res.json({ success: true });
     } catch (error) {
       console.error(error);
       res.status(500).json({ error: 'Database error' });
@@ -242,12 +331,38 @@ async function startServer() {
 
   app.post('/api/eleves', (req, res) => {
     try {
-      const { matricule, nom, prenom, niveau, statut, classe_id } = req.body;
+      const { matricule, nom, prenom, niveau, statut, classe_id, date_naissance, lieu_naissance, redoublant, nom_pere, nom_mere, adresse, telephone_tuteur } = req.body;
       const info = db.prepare(`
-        INSERT INTO eleves (matricule, nom, prenom, niveau, statut, classe_id)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `).run(matricule, nom, prenom, niveau || '', statut || 'Actif', classe_id || null);
-      res.json({ id: info.lastInsertRowid, matricule, nom, prenom, niveau, statut, classe_id });
+        INSERT INTO eleves (matricule, nom, prenom, niveau, statut, classe_id, date_naissance, lieu_naissance, redoublant, nom_pere, nom_mere, adresse, telephone_tuteur)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(matricule, nom, prenom, niveau || '', statut || 'Actif', classe_id || null, date_naissance || '', lieu_naissance || '', redoublant || 'Non', nom_pere || '', nom_mere || '', adresse || '', telephone_tuteur || '');
+      res.json({ id: info.lastInsertRowid, matricule, nom, prenom, niveau, statut, classe_id, date_naissance, lieu_naissance, redoublant, nom_pere, nom_mere, adresse, telephone_tuteur });
+    } catch (error: any) {
+      console.error(error);
+      if (error.code === 'SQLITE_CONSTRAINT_UNIQUE' || (error.message && error.message.includes('UNIQUE constraint'))) {
+        return res.status(400).json({ error: 'Ce matricule existe déjà.' });
+      }
+      res.status(500).json({ error: 'Database error' });
+    }
+  });
+
+  app.put('/api/eleves/:id', (req, res) => {
+    try {
+      const { matricule, nom, prenom, niveau, statut, classe_id, date_naissance, lieu_naissance, redoublant, nom_pere, nom_mere, adresse, telephone_tuteur } = req.body;
+      db.prepare('UPDATE eleves SET matricule = ?, nom = ?, prenom = ?, niveau = ?, statut = ?, classe_id = ?, date_naissance = ?, lieu_naissance = ?, redoublant = ?, nom_pere = ?, nom_mere = ?, adresse = ?, telephone_tuteur = ? WHERE id = ?')
+        .run(matricule, nom, prenom, niveau || '', statut || 'Actif', classe_id || null, date_naissance || '', lieu_naissance || '', redoublant || 'Non', nom_pere || '', nom_mere || '', adresse || '', telephone_tuteur || '', req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Database error' });
+    }
+  });
+
+  app.delete('/api/eleves/:id', (req, res) => {
+    try {
+      db.prepare('DELETE FROM paiements_eleves WHERE eleve_id = ?').run(req.params.id);
+      db.prepare('DELETE FROM eleves WHERE id = ?').run(req.params.id);
+      res.json({ success: true });
     } catch (error) {
       console.error(error);
       res.status(500).json({ error: 'Database error' });
@@ -266,12 +381,38 @@ async function startServer() {
 
   app.post('/api/enseignants', (req, res) => {
     try {
-      const { matricule, nom, prenom, specialite, statut, mode_paiement, taux_horaire } = req.body;
+      const { matricule, nom, prenom, specialite, statut, mode_paiement, taux_horaire, salaire_base, date_naissance, lieu_naissance } = req.body;
       const info = db.prepare(`
-        INSERT INTO enseignants (matricule, nom, prenom, specialite, statut, mode_paiement, taux_horaire)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run(matricule, nom, prenom, specialite, statut || 'Actif', mode_paiement || 'mensuel', taux_horaire || 5000);
-      res.json({ id: info.lastInsertRowid, matricule, nom, prenom, specialite, statut, mode_paiement, taux_horaire });
+        INSERT INTO enseignants (matricule, nom, prenom, specialite, statut, mode_paiement, taux_horaire, salaire_base, date_naissance, lieu_naissance)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(matricule, nom, prenom, specialite, statut || 'Actif', mode_paiement || 'mensuel', taux_horaire || 1500, salaire_base || 150000, date_naissance || '', lieu_naissance || '');
+      res.json({ id: info.lastInsertRowid, matricule, nom, prenom, specialite, statut, mode_paiement, taux_horaire, salaire_base, date_naissance, lieu_naissance });
+    } catch (error: any) {
+      console.error(error);
+      if (error.code === 'SQLITE_CONSTRAINT_UNIQUE' || (error.message && error.message.includes('UNIQUE constraint'))) {
+        return res.status(400).json({ error: 'Ce matricule existe déjà.' });
+      }
+      res.status(500).json({ error: 'Database error' });
+    }
+  });
+
+  app.put('/api/enseignants/:id', (req, res) => {
+    try {
+      const { matricule, nom, prenom, specialite, statut, mode_paiement, taux_horaire, salaire_base, date_naissance, lieu_naissance } = req.body;
+      db.prepare('UPDATE enseignants SET matricule = ?, nom = ?, prenom = ?, specialite = ?, statut = ?, mode_paiement = ?, taux_horaire = ?, salaire_base = ?, date_naissance = ?, lieu_naissance = ? WHERE id = ?')
+        .run(matricule, nom, prenom, specialite, statut || 'Actif', mode_paiement || 'mensuel', taux_horaire || 1500, salaire_base || 150000, date_naissance || '', lieu_naissance || '', req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Database error' });
+    }
+  });
+
+  app.delete('/api/enseignants/:id', (req, res) => {
+    try {
+      db.prepare('DELETE FROM salaires_enseignants WHERE enseignant_id = ?').run(req.params.id);
+      db.prepare('DELETE FROM enseignants WHERE id = ?').run(req.params.id);
+      res.json({ success: true });
     } catch (error) {
       console.error(error);
       res.status(500).json({ error: 'Database error' });
@@ -365,7 +506,7 @@ async function startServer() {
       const { salaire_base, mode_paiement, taux_horaire } = req.body;
       if (mode_paiement !== undefined) {
         db.prepare('UPDATE enseignants SET salaire_base = ?, mode_paiement = ?, taux_horaire = ? WHERE id = ?').run(
-          salaire_base, mode_paiement, taux_horaire || 5000, req.params.id
+          salaire_base, mode_paiement, taux_horaire || 1500, req.params.id
         );
       } else {
         db.prepare('UPDATE enseignants SET salaire_base = ? WHERE id = ?').run(salaire_base, req.params.id);
@@ -407,16 +548,16 @@ async function startServer() {
 
   app.post('/api/tresorerie/entrees', (req, res) => {
     try {
-      const { libelle, montant } = req.body;
+      const { libelle, montant, categorie } = req.body;
       const date_transaction = new Date().toISOString();
       const info = db.prepare(`
-        INSERT INTO autres_entrees (libelle, montant, date_transaction, annee_scolaire)
-        VALUES (?, ?, ?, ?)
-      `).run(libelle, montant, date_transaction, ANNEE);
+        INSERT INTO autres_entrees (libelle, montant, date_transaction, annee_scolaire, categorie)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(libelle, montant, date_transaction, ANNEE, categorie || 'Autre');
       
       db.prepare('UPDATE stats SET tresorerie = tresorerie + ? WHERE id = 1').run(montant);
       
-      res.json({ id: info.lastInsertRowid, libelle, montant, date_transaction });
+      res.json({ id: info.lastInsertRowid, libelle, montant, date_transaction, categorie: categorie || 'Autre' });
     } catch (error) {
       console.error(error);
       res.status(500).json({ error: 'Database error' });
@@ -435,16 +576,16 @@ async function startServer() {
 
   app.post('/api/tresorerie/sorties', (req, res) => {
     try {
-      const { libelle, montant } = req.body;
+      const { libelle, montant, categorie } = req.body;
       const date_transaction = new Date().toISOString();
       const info = db.prepare(`
-        INSERT INTO autres_sorties (libelle, montant, date_transaction, annee_scolaire)
-        VALUES (?, ?, ?, ?)
-      `).run(libelle, montant, date_transaction, ANNEE);
+        INSERT INTO autres_sorties (libelle, montant, date_transaction, annee_scolaire, categorie)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(libelle, montant, date_transaction, ANNEE, categorie || 'Autre');
       
       db.prepare('UPDATE stats SET tresorerie = tresorerie - ? WHERE id = 1').run(montant);
       
-      res.json({ id: info.lastInsertRowid, libelle, montant, date_transaction });
+      res.json({ id: info.lastInsertRowid, libelle, montant, date_transaction, categorie: categorie || 'Autre' });
     } catch (error) {
       console.error(error);
       res.status(500).json({ error: 'Database error' });
@@ -473,6 +614,89 @@ async function startServer() {
         solde,
         annee_scolaire: annee
       });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Database error' });
+    }
+  });
+
+  app.get('/api/tresorerie/bilan/mois/:mois', (req, res) => {
+    try {
+      const annee = (req.query.annee as string) || ANNEE;
+      const mois = req.params.mois;
+      
+      const totalPaiementsEleves = db.prepare('SELECT SUM(montant) as total FROM paiements_eleves WHERE annee_scolaire = ? AND mois = ?').get(annee, mois) as any;
+      const totalSalaires = db.prepare('SELECT SUM(montant) as total FROM salaires_enseignants WHERE annee_scolaire = ? AND mois = ?').get(annee, mois) as any;
+      
+      const monthNamesMap: Record<string, string> = {
+        'Janvier': '01', 'Février': '02', 'Mars': '03', 'Avril': '04', 'Mai': '05', 'Juin': '06',
+        'Juillet': '07', 'Août': '08', 'Septembre': '09', 'Octobre': '10', 'Novembre': '11', 'Décembre': '12'
+      };
+      const monthNum = monthNamesMap[mois];
+      
+      let totalAutresEntrees = { total: 0 };
+      let totalAutresSorties = { total: 0 };
+      
+      if (monthNum) {
+        totalAutresEntrees = db.prepare("SELECT SUM(montant) as total FROM autres_entrees WHERE annee_scolaire = ? AND substr(date_transaction, 6, 2) = ?").get(annee, monthNum) as any;
+        totalAutresSorties = db.prepare("SELECT SUM(montant) as total FROM autres_sorties WHERE annee_scolaire = ? AND substr(date_transaction, 6, 2) = ?").get(annee, monthNum) as any;
+      }
+      
+      const totalEntrees = (totalPaiementsEleves.total || 0) + (totalAutresEntrees.total || 0);
+      const totalSorties = (totalSalaires.total || 0) + (totalAutresSorties.total || 0);
+      const solde = totalEntrees - totalSorties;
+
+      res.json({
+        paiements_eleves: totalPaiementsEleves.total || 0,
+        autres_entrees: totalAutresEntrees.total || 0,
+        total_entrees: totalEntrees,
+        salaires_enseignants: totalSalaires.total || 0,
+        autres_sorties: totalAutresSorties.total || 0,
+        total_sorties: totalSorties,
+        solde,
+        mois,
+        annee_scolaire: annee
+      });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Database error' });
+    }
+  });
+
+  app.get('/api/tresorerie/bilans-mensuels', (req, res) => {
+    try {
+      const annee = (req.query.annee as string) || ANNEE;
+      const moisList = ['Octobre', 'Novembre', 'Décembre', 'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet'];
+      const monthNamesMap: Record<string, string> = {
+        'Janvier': '01', 'Février': '02', 'Mars': '03', 'Avril': '04', 'Mai': '05', 'Juin': '06',
+        'Juillet': '07', 'Août': '08', 'Septembre': '09', 'Octobre': '10', 'Novembre': '11', 'Décembre': '12'
+      };
+
+      const result = moisList.map(mois => {
+        const totalPaiementsEleves = db.prepare('SELECT SUM(montant) as total FROM paiements_eleves WHERE annee_scolaire = ? AND mois = ?').get(annee, mois) as any;
+        const totalSalaires = db.prepare('SELECT SUM(montant) as total FROM salaires_enseignants WHERE annee_scolaire = ? AND mois = ?').get(annee, mois) as any;
+        
+        const monthNum = monthNamesMap[mois];
+        let totalAutresEntrees = { total: 0 };
+        let totalAutresSorties = { total: 0 };
+        
+        if (monthNum) {
+          totalAutresEntrees = db.prepare("SELECT SUM(montant) as total FROM autres_entrees WHERE annee_scolaire = ? AND substr(date_transaction, 6, 2) = ?").get(annee, monthNum) as any;
+          totalAutresSorties = db.prepare("SELECT SUM(montant) as total FROM autres_sorties WHERE annee_scolaire = ? AND substr(date_transaction, 6, 2) = ?").get(annee, monthNum) as any;
+        }
+        
+        const te = (totalPaiementsEleves?.total || 0) + (totalAutresEntrees?.total || 0);
+        const ts = (totalSalaires?.total || 0) + (totalAutresSorties?.total || 0);
+
+        return {
+          mois,
+          entrees: te,
+          sorties: ts,
+          solde: te - ts
+        };
+      });
+
+      res.json(result);
     } catch (error) {
       console.error(error);
       res.status(500).json({ error: 'Database error' });
@@ -599,7 +823,7 @@ async function startServer() {
   // Restore database from uploaded file
   app.post('/api/backup/restore', express.raw({ type: 'application/octet-stream', limit: '50mb' }), (req, res) => {
     try {
-      const backupDir = path.join(process.cwd(), 'backups');
+      const backupDir = path.join(dbDir, 'backups');
       if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
       
       // Save current DB as backup before restoring
@@ -662,15 +886,193 @@ async function startServer() {
     }
   });
 
+  // --- Présences ---
+  app.get('/api/presences/:date/:classe_id', (req, res) => {
+    try {
+      const { date, classe_id } = req.params;
+      const annee = (req.query.annee as string) || ANNEE;
+      const presences = db.prepare(`
+        SELECT e.id as eleve_id, e.nom, e.prenom, e.matricule, p.id as presence_id, p.statut, p.motif 
+        FROM eleves e 
+        LEFT JOIN presences_eleves p ON e.id = p.eleve_id AND p.date_presence = ? AND p.annee_scolaire = ?
+        WHERE e.classe_id = ? AND e.statut != 'Inactif'
+        ORDER BY e.nom ASC, e.prenom ASC
+      `).all(date, annee, classe_id);
+      res.json(presences);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Database error' });
+    }
+  });
+
+  app.post('/api/presences', (req, res) => {
+    try {
+      const { eleve_id, date_presence, statut, motif } = req.body;
+      const annee = (req.body.annee as string) || ANNEE;
+      
+      const existing = db.prepare('SELECT id FROM presences_eleves WHERE eleve_id = ? AND date_presence = ? AND annee_scolaire = ?').get(eleve_id, date_presence, annee) as any;
+      
+      if (existing) {
+        db.prepare('UPDATE presences_eleves SET statut = ?, motif = ? WHERE id = ?').run(statut, motif || '', existing.id);
+      } else {
+        db.prepare('INSERT INTO presences_eleves (eleve_id, date_presence, statut, motif, annee_scolaire) VALUES (?, ?, ?, ?, ?)').run(eleve_id, date_presence, statut, motif || '', annee);
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Database error' });
+    }
+  });
+
+  // --- Évaluations et Notes ---
+  app.get('/api/evaluations/:classe_id/:periode', (req, res) => {
+    try {
+      const { classe_id, periode } = req.params;
+      const annee = (req.query.annee as string) || ANNEE;
+      const evals = db.prepare('SELECT * FROM evaluations WHERE classe_id = ? AND periode = ? AND annee_scolaire = ? ORDER BY date_eval DESC').all(classe_id, periode, annee);
+      const notes = db.prepare(`
+        SELECT n.* FROM notes_eleves n
+        JOIN evaluations e ON n.evaluation_id = e.id
+        WHERE e.classe_id = ? AND e.periode = ? AND e.annee_scolaire = ?
+      `).all(classe_id, periode, annee);
+      res.json({ evaluations: evals, notes });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Database error' });
+    }
+  });
+
+  app.post('/api/evaluations', (req, res) => {
+    try {
+      const { classe_id, matiere, coefficient, periode, date_eval, notes } = req.body;
+      const annee = (req.body.annee as string) || ANNEE;
+      
+      const evalInsert = db.prepare('INSERT INTO evaluations (classe_id, matiere, coefficient, periode, date_eval, annee_scolaire) VALUES (?, ?, ?, ?, ?, ?)').run(classe_id, matiere, coefficient, periode, date_eval, annee);
+      const evalId = evalInsert.lastInsertRowid;
+      
+      const insertNote = db.prepare('INSERT INTO notes_eleves (evaluation_id, eleve_id, note) VALUES (?, ?, ?)');
+      const updateNote = db.transaction((notesList: any[]) => {
+        for (const n of notesList) {
+          if (n.note !== null && n.note !== undefined && n.note !== '') {
+            insertNote.run(evalId, n.eleve_id, n.note);
+          }
+        }
+      });
+      updateNote(notes);
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Database error' });
+    }
+  });
+
+  app.delete('/api/evaluations/:id', (req, res) => {
+    try {
+      const { id } = req.params;
+      db.prepare('DELETE FROM notes_eleves WHERE evaluation_id = ?').run(id);
+      db.prepare('DELETE FROM evaluations WHERE id = ?').run(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Database error' });
+    }
+  });
+
+  app.get('/api/bulletins/:classe_id/:periode', (req, res) => {
+    try {
+      const { classe_id, periode } = req.params;
+      const annee = (req.query.annee as string) || ANNEE;
+      
+      const eleves = db.prepare('SELECT id, nom, prenom, matricule FROM eleves WHERE classe_id = ? AND statut != "Inactif"').all(classe_id) as any[];
+      const evals = db.prepare('SELECT id, matiere, coefficient FROM evaluations WHERE classe_id = ? AND periode = ? AND annee_scolaire = ?').all(classe_id, periode, annee) as any[];
+      
+      if (evals.length === 0) {
+        return res.json([]); // Pas d'évaluations
+      }
+
+      const notes = db.prepare(`
+        SELECT n.eleve_id, n.note, e.matiere, e.coefficient
+        FROM notes_eleves n
+        JOIN evaluations e ON n.evaluation_id = e.id
+        WHERE e.classe_id = ? AND e.periode = ? AND e.annee_scolaire = ?
+      `).all(classe_id, periode, annee) as any[];
+
+      // Regrouper par élève
+      const bulletins = eleves.map(eleve => {
+        const studentNotes = notes.filter(n => n.eleve_id === eleve.id);
+        
+        // Regrouper par matière pour moyenner les notes d'une même matière avant d'appliquer le coef
+        const matieresMap: Record<string, { totalNotes: number, count: number, coef: number }> = {};
+        studentNotes.forEach(n => {
+          if (!matieresMap[n.matiere]) {
+            matieresMap[n.matiere] = { totalNotes: 0, count: 0, coef: n.coefficient };
+          }
+          matieresMap[n.matiere].totalNotes += n.note;
+          matieresMap[n.matiere].count += 1;
+        });
+
+        let totalPoints = 0;
+        let totalCoef = 0;
+        const detailsMatieres: any[] = [];
+
+        Object.keys(matieresMap).forEach(matiere => {
+          const m = matieresMap[matiere];
+          const moyenneMatiere = m.totalNotes / m.count;
+          totalPoints += moyenneMatiere * m.coef;
+          totalCoef += m.coef;
+          detailsMatieres.push({
+            matiere,
+            moyenne: moyenneMatiere.toFixed(2),
+            coef: m.coef
+          });
+        });
+
+        const moyenneGenerale = totalCoef > 0 ? (totalPoints / totalCoef) : null;
+        
+        return {
+          eleve,
+          detailsMatieres,
+          moyenneGenerale: moyenneGenerale ? Number(moyenneGenerale.toFixed(2)) : null
+        };
+      });
+
+      // Calcul des rangs et mentions
+      const validBulletins = bulletins.filter(b => b.moyenneGenerale !== null).sort((a, b) => b.moyenneGenerale! - a.moyenneGenerale!);
+      const totalElevesEvalues = validBulletins.length;
+
+      const finalBulletins = bulletins.map(b => {
+        if (b.moyenneGenerale === null) return { ...b, rang: 'N/A', mention: 'N/A' };
+        
+        const rank = validBulletins.findIndex(vb => vb.moyenneGenerale === b.moyenneGenerale) + 1;
+        const rangStr = rank === 1 ? `1er / ${totalElevesEvalues}` : `${rank}ème / ${totalElevesEvalues}`;
+        
+        let mention = 'Insuffisant';
+        if (b.moyenneGenerale >= 16) mention = 'Très Bien';
+        else if (b.moyenneGenerale >= 14) mention = 'Bien';
+        else if (b.moyenneGenerale >= 12) mention = 'Assez Bien';
+        else if (b.moyenneGenerale >= 10) mention = 'Passable';
+
+        return { ...b, rang: rangStr, mention };
+      });
+
+      res.json(finalBulletins);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Database error' });
+    }
+  });
+
   // --- Vite Middleware (Développement & Production) ---
   if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
+    const distPath = __dirname;
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
